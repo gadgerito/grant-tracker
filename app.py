@@ -7,9 +7,6 @@ import os
 from datetime import date, datetime
 from utils import status_color, budget_summary
 
-# ── Auth ──────────────────────────────────────────────────────────────────────
-require_login()
-
 # ── DB ────────────────────────────────────────────────────────────────────────
 db = get_db()
 if db is None:
