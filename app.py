@@ -2,65 +2,10 @@ import streamlit as st
 st.set_page_config(page_title="Grant Tracker", page_icon="🎯", layout="wide")
 
 import pandas as pd
-<<<<<<< HEAD
 import hashlib
 import os
 from datetime import date, datetime
 from utils import status_color, budget_summary
-
-# ── Simple login ──────────────────────────────────────────────────────────────
-def get_db():
-    try:
-        from pymongo import MongoClient
-        uri = os.environ.get("MONGODB_URI", "") or st.secrets.get("MONGODB_URI", "")
-        client = MongoClient(uri, serverSelectionTimeoutMS=5000)
-        client.admin.command("ping")
-        return client["grant_tracker"]
-    except Exception as e:
-        st.error(f"DB error: {e}")
-        return None
-
-def check_login(username, password):
-    db = get_db()
-    if db is None:
-        return False
-    user = db["users"].find_one({"username": username.lower().strip()})
-    if not user:
-        return False
-    return user["password_hash"] == hashlib.sha256(password.encode()).hexdigest()
-
-# ── Login screen ──────────────────────────────────────────────────────────────
-if not st.session_state.get("authenticated"):
-    st.title("🎯 Grant Tracker")
-    st.markdown("### Sign in")
-    username = st.text_input("Username")
-    password = st.text_input("Password", type="password")
-    if st.button("Sign in", type="primary"):
-        if check_login(username, password):
-            st.session_state["authenticated"] = True
-            st.session_state["username"] = username.lower().strip()
-            db = get_db()
-            user = db["users"].find_one({"username": username.lower().strip()})
-            st.session_state["role"] = user.get("role", "viewer")
-            st.rerun()
-        else:
-            st.error("Incorrect username or password.")
-    st.stop()
-
-# ── Main app ──────────────────────────────────────────────────────────────────
-db = get_db()
-if db is None:
-    st.stop()
-
-from db import (load_deliverables, save_deliverable, next_deliverable_id,
-                load_team, save_team_member)
-=======
-from datetime import date, datetime
-from auth import require_login, logout
-from db import (get_db, load_deliverables, save_deliverable, delete_deliverable,
-                next_deliverable_id, load_team, save_team_member, bulk_insert_deliverables)
-from utils import status_color, budget_summary
->>>>>>> e376fcf4af7a6e7d36e7140a096a16bb4061896d
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
 require_login()
