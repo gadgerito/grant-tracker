@@ -1,10 +1,11 @@
-cat > ~/Desktop/ADHD/grant-tracker/pages/notebook.py << 'EOF'
 import streamlit as st
 import pandas as pd
 import json
 import os
 import urllib.request
 from datetime import date, datetime
+from auth import require_login
+require_login()
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 
