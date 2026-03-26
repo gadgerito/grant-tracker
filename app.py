@@ -3,39 +3,40 @@ st.set_page_config(page_title="Grant Deliverable Tracker", page_icon="🎯", lay
 
 import pandas as pd
 from datetime import date, datetime
-import os
-from data_manager import load_data, save_data, DELIVERABLES_FILE, TEAM_FILE
-from utils import status_color, days_until, budget_summary
+from auth import require_login, logout
+from db import (get_db, load_deliverables, save_deliverable, delete_deliverable,
+                next_deliverable_id, load_team, save_team_member, bulk_insert_deliverables)
+from utils import status_color, budget_summary
 
+# ── Auth ──────────────────────────────────────────────────────────────────────
+require_login()
+
+# ── DB ────────────────────────────────────────────────────────────────────────
+db = get_db()
+if db is None:
+    st.stop()
+
+# ── Sidebar ───────────────────────────────────────────────────────────────────
 st.sidebar.title("🎯 Grant Tracker")
+st.sidebar.caption(f"👤 {st.session_state.get('username', '')} · {st.session_state.get('role', '')}")
+
 page = st.sidebar.radio(
     "Navigate",
     ["📊 Dashboard", "📋 Deliverables", "👥 Team", "💰 Budget", "📤 Reports"],
 )
 st.sidebar.markdown("---")
-st.sidebar.caption("Grant Deliverable Tracker v1.0")
+if st.sidebar.button("🚪 Sign out"):
+    logout()
+st.sidebar.caption("Grant Deliverable Tracker v2.0")
 
-df = load_data(DELIVERABLES_FILE, {
-    "id": pd.Series(dtype="int"),
-    "deliverable": pd.Series(dtype="str"),
-    "description": pd.Series(dtype="str"),
-    "assignee": pd.Series(dtype="str"),
-    "due_date": pd.Series(dtype="str"),
-    "status": pd.Series(dtype="str"),
-    "budget_allocated": pd.Series(dtype="float"),
-    "budget_spent": pd.Series(dtype="float"),
-    "milestone": pd.Series(dtype="str"),
-    "notes": pd.Series(dtype="str"),
-})
-
-team_df = load_data(TEAM_FILE, {
-    "name": pd.Series(dtype="str"),
-    "role": pd.Series(dtype="str"),
-    "email": pd.Series(dtype="str"),
-})
-
+# ── Load data ─────────────────────────────────────────────────────────────────
+df = load_deliverables(db)
+team_df = load_team(db)
 STATUS_OPTIONS = ["Not Started", "In Progress", "Under Review", "Complete", "Blocked"]
 
+# ═════════════════════════════════════════════════════════════════════════════
+# DASHBOARD
+# ═════════════════════════════════════════════════════════════════════════════
 if page == "📊 Dashboard":
     st.title("📊 Dashboard")
     if df.empty:
@@ -93,6 +94,9 @@ if page == "📊 Dashboard":
             pct = bsum["spent"] / bsum["allocated"]
             st.progress(min(pct, 1.0), text=f"{pct:.0%} of budget used")
 
+# ═════════════════════════════════════════════════════════════════════════════
+# DELIVERABLES
+# ═════════════════════════════════════════════════════════════════════════════
 elif page == "📋 Deliverables":
     st.title("📋 Deliverables")
     tab1, tab2 = st.tabs(["View & Edit", "Add New"])
@@ -124,8 +128,8 @@ elif page == "📋 Deliverables":
                         st.write(f"**Milestone:** {row['milestone']}")
                         st.write(f"**Description:** {row['description']}")
                     with c2:
-                        st.write(f"**Budget Allocated:** ${row['budget_allocated']:,.2f}")
-                        st.write(f"**Budget Spent:** ${row['budget_spent']:,.2f}")
+                        st.write(f"**Budget Allocated:** ${float(row['budget_allocated']):,.2f}")
+                        st.write(f"**Budget Spent:** ${float(row['budget_spent']):,.2f}")
                         st.write(f"**Notes:** {row['notes']}")
                     with st.form(key=f"edit_{row['id']}"):
                         new_status = st.selectbox("Update Status", STATUS_OPTIONS, index=STATUS_OPTIONS.index(row["status"]))
@@ -133,10 +137,11 @@ elif page == "📋 Deliverables":
                         new_notes = st.text_area("Update Notes", value=str(row["notes"]))
                         submitted = st.form_submit_button("💾 Save Changes")
                         if submitted:
-                            df.loc[df["id"] == row["id"], "status"] = new_status
-                            df.loc[df["id"] == row["id"], "budget_spent"] = new_spent
-                            df.loc[df["id"] == row["id"], "notes"] = new_notes
-                            save_data(df, DELIVERABLES_FILE)
+                            updated = row.to_dict()
+                            updated["status"] = new_status
+                            updated["budget_spent"] = new_spent
+                            updated["notes"] = new_notes
+                            save_deliverable(db, updated)
                             st.success("Saved!")
                             st.rerun()
     with tab2:
@@ -151,7 +156,7 @@ elif page == "📋 Deliverables":
                 due_date = st.date_input("Due Date", value=date.today())
                 status = st.selectbox("Status", STATUS_OPTIONS)
             with col2:
-                milestone = st.text_input("Milestone / Aim", placeholder="e.g. Aim 1, Quarter 2")
+                milestone = st.text_input("Milestone / Aim")
                 budget_alloc = st.number_input("Budget Allocated ($)", min_value=0.0, value=0.0)
                 budget_spent = st.number_input("Budget Spent ($)", min_value=0.0, value=0.0)
             notes = st.text_area("Notes")
@@ -159,13 +164,20 @@ elif page == "📋 Deliverables":
                 if not name:
                     st.error("Deliverable name is required.")
                 else:
-                    new_id = int(df["id"].max()) + 1 if not df.empty else 1
-                    new_row = {"id": new_id, "deliverable": name, "description": description, "assignee": assignee, "due_date": str(due_date), "status": status, "budget_allocated": budget_alloc, "budget_spent": budget_spent, "milestone": milestone, "notes": notes}
-                    df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-                    save_data(df, DELIVERABLES_FILE)
+                    new_record = {
+                        "id": next_deliverable_id(db),
+                        "deliverable": name, "description": description,
+                        "assignee": assignee, "due_date": str(due_date),
+                        "status": status, "budget_allocated": budget_alloc,
+                        "budget_spent": budget_spent, "milestone": milestone, "notes": notes,
+                    }
+                    save_deliverable(db, new_record)
                     st.success(f"✅ '{name}' added!")
                     st.rerun()
 
+# ═════════════════════════════════════════════════════════════════════════════
+# TEAM
+# ═════════════════════════════════════════════════════════════════════════════
 elif page == "👥 Team":
     st.title("👥 Team Members")
     tab1, tab2 = st.tabs(["Team Roster", "Add Member"])
@@ -174,9 +186,9 @@ elif page == "👥 Team":
             st.info("No team members added yet.")
         else:
             st.dataframe(team_df, use_container_width=True, hide_index=True)
-            st.markdown("---")
-            st.subheader("Deliverables by Team Member")
             if not df.empty:
+                st.markdown("---")
+                st.subheader("Deliverables by Team Member")
                 for member in team_df["name"]:
                     member_delivs = df[df["assignee"] == member]
                     if not member_delivs.empty:
@@ -191,12 +203,13 @@ elif page == "👥 Team":
                 if not m_name:
                     st.error("Name is required.")
                 else:
-                    new_member = {"name": m_name, "role": m_role, "email": m_email}
-                    team_df = pd.concat([team_df, pd.DataFrame([new_member])], ignore_index=True)
-                    save_data(team_df, TEAM_FILE)
+                    save_team_member(db, {"name": m_name, "role": m_role, "email": m_email})
                     st.success(f"✅ {m_name} added!")
                     st.rerun()
 
+# ═════════════════════════════════════════════════════════════════════════════
+# BUDGET
+# ═════════════════════════════════════════════════════════════════════════════
 elif page == "💰 Budget":
     st.title("💰 Budget Tracking")
     if df.empty:
@@ -212,18 +225,21 @@ elif page == "💰 Budget":
             color = "🔴" if pct > 0.9 else "🟡" if pct > 0.7 else "🟢"
             st.progress(min(pct, 1.0), text=f"{color} {pct:.0%} of total budget used")
         st.markdown("---")
-        st.subheader("Budget by Milestone")
         milestone_budget = df.groupby("milestone")[["budget_allocated", "budget_spent"]].sum().reset_index()
         milestone_budget.columns = ["Milestone", "Allocated ($)", "Spent ($)"]
         milestone_budget["Remaining ($)"] = milestone_budget["Allocated ($)"] - milestone_budget["Spent ($)"]
+        st.subheader("Budget by Milestone")
         st.dataframe(milestone_budget, use_container_width=True, hide_index=True)
         st.markdown("---")
-        st.subheader("Budget by Deliverable")
         budget_detail = df[["deliverable", "assignee", "status", "budget_allocated", "budget_spent"]].copy()
         budget_detail["remaining"] = budget_detail["budget_allocated"] - budget_detail["budget_spent"]
         budget_detail.columns = ["Deliverable", "Assignee", "Status", "Allocated ($)", "Spent ($)", "Remaining ($)"]
+        st.subheader("Budget by Deliverable")
         st.dataframe(budget_detail, use_container_width=True, hide_index=True)
 
+# ═════════════════════════════════════════════════════════════════════════════
+# REPORTS
+# ═════════════════════════════════════════════════════════════════════════════
 elif page == "📤 Reports":
     st.title("📤 Reports & Exports")
     if df.empty:
@@ -235,14 +251,10 @@ elif page == "📤 Reports":
         bsum = budget_summary(df)
         st.markdown(f"""
 **Report Generated:** {date.today().strftime("%B %d, %Y")}
-
 ### Overall Progress
 - **{complete} of {total} deliverables complete ({pct}%)**
-
 ### Budget Summary
-- Allocated: **${bsum['allocated']:,.2f}**
-- Spent: **${bsum['spent']:,.2f}**
-- Remaining: **${bsum['remaining']:,.2f}**
+- Allocated: **${bsum['allocated']:,.2f}** | Spent: **${bsum['spent']:,.2f}** | Remaining: **${bsum['remaining']:,.2f}**
 """)
         for s in STATUS_OPTIONS:
             count = (df["status"] == s).sum()
@@ -255,7 +267,5 @@ elif page == "📤 Reports":
         with col2:
             summary_df = df.groupby("status").size().reset_index(name="count")
             summary_csv = summary_df.to_csv(index=False).encode("utf-8")
-            st.download_button("⬇️ Download Summary Report (CSV)", data=summary_csv, file_name=f"grant_summary_{date.today()}.csv", mime="text/csv")
-        st.markdown("---")
-        st.subheader("Full Deliverables Table")
+            st.download_button("⬇️ Download Summary (CSV)", data=summary_csv, file_name=f"grant_summary_{date.today()}.csv", mime="text/csv")
         st.dataframe(df, use_container_width=True, hide_index=True)
