@@ -23,4 +23,8 @@ def days_until(due_date_str: str) -> Optional[int]:
 def budget_summary(df: pd.DataFrame) -> dict:
     allocated = pd.to_numeric(df["budget_allocated"], errors="coerce").fillna(0).sum()
     spent = pd.to_numeric(df["budget_spent"], errors="coerce").fillna(0).sum()
+<<<<<<< HEAD
     return {"allocated": allocated, "spent": spent, "remaining": allocated - spent}
+=======
+    return {"allocated": allocated, "spent": spent, "remaining": allocated - spent}
+>>>>>>> e376fcf4af7a6e7d36e7140a096a16bb4061896d

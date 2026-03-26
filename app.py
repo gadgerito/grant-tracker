@@ -2,6 +2,7 @@ import streamlit as st
 st.set_page_config(page_title="Grant Tracker", page_icon="🎯", layout="wide")
 
 import pandas as pd
+<<<<<<< HEAD
 import hashlib
 import os
 from datetime import date, datetime
@@ -53,8 +54,25 @@ if db is None:
 
 from db import (load_deliverables, save_deliverable, next_deliverable_id,
                 load_team, save_team_member)
+=======
+from datetime import date, datetime
+from auth import require_login, logout
+from db import (get_db, load_deliverables, save_deliverable, delete_deliverable,
+                next_deliverable_id, load_team, save_team_member, bulk_insert_deliverables)
+from utils import status_color, budget_summary
+>>>>>>> e376fcf4af7a6e7d36e7140a096a16bb4061896d
 
+# ── Auth ──────────────────────────────────────────────────────────────────────
+require_login()
+
+# ── DB ────────────────────────────────────────────────────────────────────────
+db = get_db()
+if db is None:
+    st.stop()
+
+# ── Sidebar ───────────────────────────────────────────────────────────────────
 st.sidebar.title("🎯 Grant Tracker")
+<<<<<<< HEAD
 st.sidebar.caption(f"👤 {st.session_state.get('username', '')}")
 page = st.sidebar.radio("Navigate", ["📊 Dashboard", "📋 Deliverables", "👥 Team", "💰 Budget", "📤 Reports"])
 st.sidebar.markdown("---")
@@ -62,10 +80,27 @@ if st.sidebar.button("🚪 Sign out"):
     st.session_state.clear()
     st.rerun()
 
+=======
+st.sidebar.caption(f"👤 {st.session_state.get('username', '')} · {st.session_state.get('role', '')}")
+
+page = st.sidebar.radio(
+    "Navigate",
+    ["📊 Dashboard", "📋 Deliverables", "👥 Team", "💰 Budget", "📤 Reports"],
+)
+st.sidebar.markdown("---")
+if st.sidebar.button("🚪 Sign out"):
+    logout()
+st.sidebar.caption("Grant Deliverable Tracker v2.0")
+
+# ── Load data ─────────────────────────────────────────────────────────────────
+>>>>>>> e376fcf4af7a6e7d36e7140a096a16bb4061896d
 df = load_deliverables(db)
 team_df = load_team(db)
 STATUS_OPTIONS = ["Not Started", "In Progress", "Under Review", "Complete", "Blocked"]
 
+# ═════════════════════════════════════════════════════════════════════════════
+# DASHBOARD
+# ═════════════════════════════════════════════════════════════════════════════
 if page == "📊 Dashboard":
     st.title("📊 Dashboard")
     if df.empty:
@@ -119,6 +154,9 @@ if page == "📊 Dashboard":
         b2.metric("Spent", f"${bsum['spent']:,.2f}")
         b3.metric("Remaining", f"${bsum['remaining']:,.2f}")
 
+# ═════════════════════════════════════════════════════════════════════════════
+# DELIVERABLES
+# ═════════════════════════════════════════════════════════════════════════════
 elif page == "📋 Deliverables":
     st.title("📋 Deliverables")
     tab1, tab2 = st.tabs(["View & Edit", "Add New"])
@@ -152,10 +190,18 @@ elif page == "📋 Deliverables":
                         st.write(f"**Budget Spent:** ${float(row['budget_spent']):,.2f}")
                         st.write(f"**Notes:** {row['notes']}")
                     with st.form(key=f"edit_{row['id']}"):
+<<<<<<< HEAD
                         new_status = st.selectbox("Status", STATUS_OPTIONS, index=STATUS_OPTIONS.index(row["status"]))
                         new_spent = st.number_input("Budget Spent ($)", value=float(row["budget_spent"]), min_value=0.0)
                         new_notes = st.text_area("Notes", value=str(row["notes"]))
                         if st.form_submit_button("💾 Save"):
+=======
+                        new_status = st.selectbox("Update Status", STATUS_OPTIONS, index=STATUS_OPTIONS.index(row["status"]))
+                        new_spent = st.number_input("Update Budget Spent ($)", value=float(row["budget_spent"]), min_value=0.0)
+                        new_notes = st.text_area("Update Notes", value=str(row["notes"]))
+                        submitted = st.form_submit_button("💾 Save Changes")
+                        if submitted:
+>>>>>>> e376fcf4af7a6e7d36e7140a096a16bb4061896d
                             updated = row.to_dict()
                             updated["status"] = new_status
                             updated["budget_spent"] = new_spent
@@ -182,10 +228,24 @@ elif page == "📋 Deliverables":
                 if not name:
                     st.error("Name required.")
                 else:
+<<<<<<< HEAD
                     save_deliverable(db, {"id": next_deliverable_id(db), "deliverable": name, "description": description, "assignee": assignee, "due_date": str(due_date), "status": status, "budget_allocated": budget_alloc, "budget_spent": budget_spent, "milestone": milestone, "notes": notes})
+=======
+                    new_record = {
+                        "id": next_deliverable_id(db),
+                        "deliverable": name, "description": description,
+                        "assignee": assignee, "due_date": str(due_date),
+                        "status": status, "budget_allocated": budget_alloc,
+                        "budget_spent": budget_spent, "milestone": milestone, "notes": notes,
+                    }
+                    save_deliverable(db, new_record)
+>>>>>>> e376fcf4af7a6e7d36e7140a096a16bb4061896d
                     st.success(f"✅ '{name}' added!")
                     st.rerun()
 
+# ═════════════════════════════════════════════════════════════════════════════
+# TEAM
+# ═════════════════════════════════════════════════════════════════════════════
 elif page == "👥 Team":
     st.title("👥 Team Members")
     tab1, tab2 = st.tabs(["Roster", "Add Member"])
@@ -194,17 +254,38 @@ elif page == "👥 Team":
             st.info("No team members yet.")
         else:
             st.dataframe(team_df, use_container_width=True, hide_index=True)
+<<<<<<< HEAD
+=======
+            if not df.empty:
+                st.markdown("---")
+                st.subheader("Deliverables by Team Member")
+                for member in team_df["name"]:
+                    member_delivs = df[df["assignee"] == member]
+                    if not member_delivs.empty:
+                        with st.expander(f"📌 {member} ({len(member_delivs)} deliverable(s))"):
+                            st.dataframe(member_delivs[["deliverable", "status", "due_date", "milestone"]], use_container_width=True, hide_index=True)
+>>>>>>> e376fcf4af7a6e7d36e7140a096a16bb4061896d
     with tab2:
         with st.form("add_member"):
             m_name = st.text_input("Full Name *")
             m_role = st.text_input("Role")
             m_email = st.text_input("Email")
+<<<<<<< HEAD
             if st.form_submit_button("➕ Add"):
                 if m_name:
+=======
+            if st.form_submit_button("➕ Add Team Member"):
+                if not m_name:
+                    st.error("Name is required.")
+                else:
+>>>>>>> e376fcf4af7a6e7d36e7140a096a16bb4061896d
                     save_team_member(db, {"name": m_name, "role": m_role, "email": m_email})
                     st.success(f"✅ {m_name} added!")
                     st.rerun()
 
+# ═════════════════════════════════════════════════════════════════════════════
+# BUDGET
+# ═════════════════════════════════════════════════════════════════════════════
 elif page == "💰 Budget":
     st.title("💰 Budget Tracking")
     if df.empty:
@@ -222,8 +303,21 @@ elif page == "💰 Budget":
         milestone_budget = df.groupby("milestone")[["budget_allocated", "budget_spent"]].sum().reset_index()
         milestone_budget.columns = ["Milestone", "Allocated ($)", "Spent ($)"]
         milestone_budget["Remaining ($)"] = milestone_budget["Allocated ($)"] - milestone_budget["Spent ($)"]
+        st.subheader("Budget by Milestone")
         st.dataframe(milestone_budget, use_container_width=True, hide_index=True)
+<<<<<<< HEAD
+=======
+        st.markdown("---")
+        budget_detail = df[["deliverable", "assignee", "status", "budget_allocated", "budget_spent"]].copy()
+        budget_detail["remaining"] = budget_detail["budget_allocated"] - budget_detail["budget_spent"]
+        budget_detail.columns = ["Deliverable", "Assignee", "Status", "Allocated ($)", "Spent ($)", "Remaining ($)"]
+        st.subheader("Budget by Deliverable")
+        st.dataframe(budget_detail, use_container_width=True, hide_index=True)
+>>>>>>> e376fcf4af7a6e7d36e7140a096a16bb4061896d
 
+# ═════════════════════════════════════════════════════════════════════════════
+# REPORTS
+# ═════════════════════════════════════════════════════════════════════════════
 elif page == "📤 Reports":
     st.title("📤 Reports")
     if df.empty:
@@ -231,8 +325,32 @@ elif page == "📤 Reports":
     else:
         total = len(df)
         complete = (df["status"] == "Complete").sum()
+<<<<<<< HEAD
         st.markdown(f"**{complete} of {total} deliverables complete ({round(complete/total*100)}%)**")
+=======
+        pct = round(complete / total * 100, 1) if total > 0 else 0
+        bsum = budget_summary(df)
+        st.markdown(f"""
+**Report Generated:** {date.today().strftime("%B %d, %Y")}
+### Overall Progress
+- **{complete} of {total} deliverables complete ({pct}%)**
+### Budget Summary
+- Allocated: **${bsum['allocated']:,.2f}** | Spent: **${bsum['spent']:,.2f}** | Remaining: **${bsum['remaining']:,.2f}**
+""")
+>>>>>>> e376fcf4af7a6e7d36e7140a096a16bb4061896d
         for s in STATUS_OPTIONS:
             st.markdown(f"- {status_color(s)} **{s}**: {(df['status'] == s).sum()}")
         st.markdown("---")
+<<<<<<< HEAD
         st.download_button("⬇️ Download CSV", data=df.to_csv(index=False).encode("utf-8"), file_name=f"deliverables_{date.today()}.csv", mime="text/csv")
+=======
+        col1, col2 = st.columns(2)
+        with col1:
+            csv = df.to_csv(index=False).encode("utf-8")
+            st.download_button("⬇️ Download Deliverables (CSV)", data=csv, file_name=f"grant_deliverables_{date.today()}.csv", mime="text/csv")
+        with col2:
+            summary_df = df.groupby("status").size().reset_index(name="count")
+            summary_csv = summary_df.to_csv(index=False).encode("utf-8")
+            st.download_button("⬇️ Download Summary (CSV)", data=summary_csv, file_name=f"grant_summary_{date.today()}.csv", mime="text/csv")
+        st.dataframe(df, use_container_width=True, hide_index=True)
+>>>>>>> e376fcf4af7a6e7d36e7140a096a16bb4061896d
