@@ -6,12 +6,6 @@ from datetime import date, datetime
 from utils import status_color, budget_summary
 
 st.set_page_config(page_title="Grant Tracker", page_icon="🎯", layout="wide")
-if not st.session_state.get("authenticated"):
-    st.markdown("""
-    <style>
-    [data-testid="stSidebarNav"] {display: none;}
-    </style>
-    """, unsafe_allow_html=True)
 def get_db():
     try:
         from pymongo import MongoClient
@@ -49,15 +43,16 @@ if not st.session_state.get("authenticated"):
             st.rerun()
         else:
             st.error("Incorrect password.")
-    st.stop()
-if not st.session_state.get("notebook_access"):
-    st.markdown("""
-    <style>
-    [data-testid="stSidebarNav"] a[href*="Notebook"] {
-        display: none;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+   # --- Hide all utility pages from sidebar nav by default ---
+hidden_pages = ["Import", "Backup", "Signup", "Admin", "Notebook"]
+if st.session_state.get("notebook_access"):
+    hidden_pages.remove("Admin")
+
+hide_css = "\n".join(
+    f'[data-testid="stSidebarNav"] a[href*="{p}"] {{display: none;}}'
+    for p in hidden_pages
+)
+st.markdown(f"<style>{hide_css}</style>", unsafe_allow_html=True)
 db = get_db()
 if db is None:
     st.stop()
