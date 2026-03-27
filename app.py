@@ -52,7 +52,7 @@ if db is None:
     st.stop()
 
 from db import (load_deliverables, save_deliverable, next_deliverable_id,
-                load_team, save_team_member)
+                load_team, save_team_member, delete_deliverable)
 
 st.sidebar.title("🎯 Grant Tracker")
 st.sidebar.caption(f"👤 {st.session_state.get('username', '')}")
@@ -155,14 +155,21 @@ elif page == "📋 Deliverables":
                         new_status = st.selectbox("Status", STATUS_OPTIONS, index=STATUS_OPTIONS.index(row["status"]))
                         new_spent = st.number_input("Budget Spent ($)", value=float(row["budget_spent"]), min_value=0.0)
                         new_notes = st.text_area("Notes", value=str(row["notes"]))
-                        if st.form_submit_button("💾 Save"):
-                            updated = row.to_dict()
-                            updated["status"] = new_status
-                            updated["budget_spent"] = new_spent
-                            updated["notes"] = new_notes
-                            save_deliverable(db, updated)
-                            st.success("Saved!")
-                            st.rerun()
+                        col_save, col_delete = st.columns(2)
+                        with col_save:
+                            if st.form_submit_button("💾 Save"):
+                                updated = row.to_dict()
+                                updated["status"] = new_status
+                                updated["budget_spent"] = new_spent
+                                updated["notes"] = new_notes
+                                save_deliverable(db, updated)
+                                st.success("Saved!")
+                                st.rerun()
+                        with col_delete:
+                            if st.form_submit_button("🗑️ Delete"):
+                                delete_deliverable(db, row["id"])
+                                st.success("Deleted!")
+                                st.rerun()
     with tab2:
         team_names = team_df["name"].tolist() if not team_df.empty else []
         with st.form("add_deliverable"):
