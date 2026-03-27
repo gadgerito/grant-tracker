@@ -68,7 +68,6 @@ st.sidebar.markdown("---")
 if st.session_state.get("notebook_access"):
     st.sidebar.markdown("---")
     st.sidebar.markdown("**🔐 Admin**")
-    st.sidebar.page_link("pages/2_📓_Notebook.py", label="📓 Notebook"):
     st.session_state.clear()
     st.rerun()
 
