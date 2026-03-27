@@ -73,8 +73,9 @@ st.sidebar.markdown("---")
 if st.session_state.get("notebook_access"):
     st.sidebar.markdown("---")
     st.sidebar.markdown("**🔐 Admin**")
-    st.session_state.clear()
-    st.rerun()
+    if st.sidebar.button("🚪 Logout"):
+        st.session_state.clear()
+        st.rerun()
 
 df = load_deliverables(db)
 team_df = load_team(db)
