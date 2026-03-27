@@ -1,5 +1,5 @@
 """
-pages/notebook.py — Notebook with project folders, overviews, timeline, PM Coach
+pages/notebook.py — Notebook with project folders, meeting transcripts, overviews, timeline, PM Coach
 """
 
 import streamlit as st
@@ -37,11 +37,33 @@ def call_claude(messages, system=""):
     except Exception as e:
         return f"⚠️ API error: {e}"
 
+def extract_text_from_docx(file):
+    try:
+        import zipfile
+        import xml.etree.ElementTree as ET
+        from io import BytesIO
+        docx_bytes = BytesIO(file.read())
+        with zipfile.ZipFile(docx_bytes) as z:
+            with z.open("word/document.xml") as xml_file:
+                tree = ET.parse(xml_file)
+                root = tree.getroot()
+                paragraphs = []
+                for para in root.iter("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}p"):
+                    texts = [node.text for node in para.iter("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t") if node.text]
+                    if texts:
+                        paragraphs.append("".join(texts))
+        return "\n".join(paragraphs)
+    except Exception as e:
+        return f"ERROR: {e}"
+
 PM_SYSTEM = """You are an expert project management coach specializing in multi-year foundation grants. Be direct, practical, always end with 2-3 specific next actions."""
 
-PROJECT_OVERVIEW_SYSTEM = """You are a grant project manager assistant. Analyze meeting notes and provide a concise project overview using traffic lights:
-🔴 = urgent/at risk, 🟡 = needs attention, 🟢 = on track
-Keep everything scannable and ADHD-friendly. One sentence per point. No walls of text."""
+MINUTES_SYSTEM = """You are an ADHD-friendly meeting summarizer for a grant project manager.
+Extract only what matters using traffic lights:
+🔴 = urgent/blocked/overdue, 🟡 = needs attention, 🟢 = on track/done
+One sentence per point. No walls of text. Bold the most critical item in each section."""
+
+PROJECT_OVERVIEW_SYSTEM = """You are a grant project manager assistant. Analyze meeting notes and provide a concise ADHD-friendly project overview using traffic lights. One sentence per point. No walls of text."""
 
 DATA_DIR = "data"
 NOTES_FILE = os.path.join(DATA_DIR, "notebook.csv")
@@ -72,10 +94,22 @@ def load_projects():
             return pd.read_csv(PROJECTS_FILE)
         except:
             pass
-    return pd.DataFrame(columns=["name", "description", "start_date", "end_date", "funder"])
+    return pd.DataFrame(columns=["name","description","start_date","end_date","funder"])
 
 def save_projects(df):
     df.to_csv(PROJECTS_FILE, index=False)
+
+def get_next_id(df):
+    return int(df["id"].max()) + 1 if not df.empty and "id" in df.columns else 1
+
+def add_note(notes_df, title, content, action_items, project_tag, meeting_type, status_tag, note_type="meeting", note_date=None):
+    new_note = {
+        "id": get_next_id(notes_df), "type": note_type, "title": title,
+        "content": content, "action_items": action_items,
+        "date": str(note_date or date.today()), "project_tag": project_tag,
+        "meeting_type": meeting_type, "status_tag": status_tag
+    }
+    return pd.concat([notes_df, pd.DataFrame([new_note])], ignore_index=True)
 
 notes_df = load_notes()
 projects_df = load_projects()
@@ -83,12 +117,18 @@ projects_df = load_projects()
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
+all_project_names = sorted(set(
+    list(projects_df["name"].tolist()) +
+    list(notes_df["project_tag"].dropna().unique().tolist())
+))
+
 st.title("📓 Notebook & PM Coach")
 
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "📁 Project Folders",
     "🔍 Project Overview",
-    "📝 Add Meeting Notes",
+    "📋 Transcribe & File",
+    "📝 Add Notes",
     "📅 Timeline",
     "🔁 Reflections",
     "💬 PM Coach",
@@ -99,13 +139,10 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
 # ═══════════════════════════════════════════════════════════════════════
 with tab1:
     st.subheader("📁 Project Folders")
-
     col_left, col_right = st.columns([1, 3])
 
     with col_left:
         st.markdown("**Your Projects**")
-
-        # Add new project
         with st.expander("➕ Add Project"):
             with st.form("add_project"):
                 p_name = st.text_input("Project Name *")
@@ -117,30 +154,21 @@ with tab1:
                     if p_name:
                         projects_df = pd.concat([projects_df, pd.DataFrame([{
                             "name": p_name, "description": p_desc,
-                            "start_date": str(p_start), "end_date": str(p_end),
-                            "funder": p_funder
+                            "start_date": str(p_start), "end_date": str(p_end), "funder": p_funder
                         }])], ignore_index=True)
                         save_projects(projects_df)
                         st.success(f"✅ {p_name} added!")
                         st.rerun()
 
-        # Project list
-        all_projects = sorted(set(
-            list(projects_df["name"].tolist()) +
-            list(notes_df["project_tag"].dropna().unique().tolist())
-        ))
-
-        if not all_projects:
+        if not all_project_names:
             st.info("No projects yet.")
         else:
-            selected_project = st.radio("Select project", all_projects, key="selected_project")
+            selected_project = st.radio("Select project", all_project_names, key="selected_project")
 
     with col_right:
         if "selected_project" in st.session_state and st.session_state.selected_project:
             project = st.session_state.selected_project
             st.markdown(f"### 📁 {project}")
-
-            # Project info
             proj_info = projects_df[projects_df["name"] == project]
             if not proj_info.empty:
                 row = proj_info.iloc[0]
@@ -150,13 +178,9 @@ with tab1:
                 col_c.metric("End", str(row.get("end_date", "—")))
                 if row.get("description"):
                     st.caption(row["description"])
-
             st.markdown("---")
 
-            # Filter notes for this project
             project_notes = notes_df[notes_df["project_tag"] == project].sort_values("date", ascending=False)
-
-            # Sub-filters
             col1, col2 = st.columns(2)
             with col1:
                 filter_type = st.multiselect("Meeting Type", MEETING_TYPES, default=MEETING_TYPES, key=f"ft_{project}")
@@ -169,9 +193,8 @@ with tab1:
             ] if not project_notes.empty else project_notes
 
             st.markdown(f"**{len(filtered)} note(s)**")
-
             if filtered.empty:
-                st.info("No notes in this folder yet. Add meeting notes and tag them with this project!")
+                st.info("No notes yet. Use **Transcribe & File** to add meeting summaries!")
             else:
                 for _, row in filtered.iterrows():
                     status_icon = {"Action Needed": "🔴", "FYI": "🟡", "Archived": "⚫"}.get(str(row.get("status_tag", "")), "🟢")
@@ -200,17 +223,12 @@ with tab1:
 # ═══════════════════════════════════════════════════════════════════════
 with tab2:
     st.subheader("🔍 Project Overview")
-    st.caption("Select a project and Claude will generate an ADHD-friendly overview from all your meeting notes.")
+    st.caption("Claude reads all your meeting notes for a project and generates a traffic light summary.")
 
-    all_projects_ov = sorted(set(
-        list(projects_df["name"].tolist()) +
-        list(notes_df["project_tag"].dropna().unique().tolist())
-    ))
-
-    if not all_projects_ov:
+    if not all_project_names:
         st.info("No projects yet!")
     else:
-        ov_project = st.selectbox("Select project", all_projects_ov, key="ov_project")
+        ov_project = st.selectbox("Select project", all_project_names, key="ov_project")
         project_notes_ov = notes_df[notes_df["project_tag"] == ov_project].sort_values("date")
 
         col1, col2, col3 = st.columns(3)
@@ -225,67 +243,186 @@ with tab2:
                     combined_notes += f"\n\n--- {row['date']} | {row.get('meeting_type', '')} | {row['title']} ---\n{row['content']}"
                     if row.get("action_items"):
                         combined_notes += f"\nAction Items: {row['action_items']}"
-
                 combined_notes = combined_notes[:8000]
-
-                prompt = f"""Here are all meeting notes for project: {ov_project}
+                prompt = f"""All meeting notes for project: {ov_project}
 
 {combined_notes}
 
-Generate a concise ADHD-friendly project overview:
+Generate ADHD-friendly project overview:
 
 ## 🔴🟡🟢 PROJECT HEALTH
-One sentence on overall status with traffic light.
+One sentence overall status with traffic light.
 
-## ✅ COMPLETED SINCE LAST MEETING
+## ✅ COMPLETED
 Bullet list of wins. One sentence each.
 
 ## 🔴 OPEN ACTION ITEMS
-List all unresolved action items. Format: 🔴/🟡 **[Owner]**: [Task]
+Format: 🔴/🟡 **[Owner]**: [Task]
 
-## 🚧 ONGOING RISKS OR BLOCKERS
+## 🚧 RISKS & BLOCKERS
 One sentence each with traffic light.
 
-## 📈 KEY DECISIONS MADE
+## 📈 KEY DECISIONS
 Bullet list. One sentence each.
 
 ## ⏭️ NEXT STEPS
-Top 3 things that need to happen next. Bold the most urgent.
+Top 3 next steps. Bold the most urgent.
 
-Keep everything scannable. No paragraphs."""
+No paragraphs. Scannable only."""
 
-                with st.spinner("Claude is analyzing all your meeting notes..."):
+                with st.spinner("Claude is analyzing your meeting notes..."):
                     overview = call_claude([{"role": "user", "content": prompt}], system=PROJECT_OVERVIEW_SYSTEM)
-
                 st.markdown("---")
-                st.markdown(f"### 📊 {ov_project} — Project Overview")
+                st.markdown(f"### 📊 {ov_project} — Overview")
                 st.markdown(overview)
                 st.session_state[f"overview_{ov_project}"] = overview
 
             if f"overview_{ov_project}" in st.session_state:
-                st.download_button(
-                    "⬇️ Download Overview",
+                st.download_button("⬇️ Download Overview",
                     data=st.session_state[f"overview_{ov_project}"].encode("utf-8"),
-                    file_name=f"{ov_project}_overview_{date.today()}.txt",
-                    mime="text/plain"
-                )
+                    file_name=f"{ov_project}_overview_{date.today()}.txt", mime="text/plain")
         else:
-            st.info("No notes for this project yet. Add meeting notes and tag them with this project!")
+            st.info("No notes for this project yet!")
 
 # ═══════════════════════════════════════════════════════════════════════
-# TAB 3 — ADD MEETING NOTES
+# TAB 3 — TRANSCRIBE & FILE
 # ═══════════════════════════════════════════════════════════════════════
 with tab3:
-    st.subheader("📝 Add Meeting Notes")
-    all_project_names = sorted(set(
-        list(projects_df["name"].tolist()) +
-        list(notes_df["project_tag"].dropna().unique().tolist())
-    ))
+    st.subheader("📋 Transcribe Meeting & File to Folder")
+    st.caption("Upload or paste your meeting transcript — Claude summarizes it and you file it straight into a project folder.")
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        meeting_title = st.text_input("Meeting Title *", placeholder="e.g. Q1 Team Sync")
+    with col2:
+        file_project = st.selectbox("File into Project *", [""] + all_project_names, key="file_project")
+    with col3:
+        file_meeting_type = st.selectbox("Meeting Type", MEETING_TYPES, key="file_mt")
+
+    col4, col5 = st.columns(2)
+    with col4:
+        file_date = st.date_input("Meeting Date", value=date.today(), key="file_date")
+    with col5:
+        file_status = st.selectbox("Status", NOTE_STATUSES, key="file_status")
+
+    input_method = st.radio("Input method", ["📋 Paste text", "📄 Upload file (.txt or .docx)"], horizontal=True)
+
+    raw_text = ""
+    if input_method == "📋 Paste text":
+        raw_text = st.text_area("Paste transcript or meeting notes", height=200,
+            placeholder="Paste raw notes, transcript, or bullet points...")
+    else:
+        uploaded = st.file_uploader("Upload transcript", type=["txt", "docx"])
+        if uploaded:
+            if uploaded.name.endswith(".txt"):
+                raw_text = uploaded.read().decode("utf-8", errors="ignore")
+                st.success(f"✅ {len(raw_text.split())} words loaded")
+            elif uploaded.name.endswith(".docx"):
+                raw_text = extract_text_from_docx(uploaded)
+                if raw_text.startswith("ERROR"):
+                    st.error(raw_text)
+                    raw_text = ""
+                else:
+                    st.success(f"✅ {len(raw_text.split())} words loaded")
+            if raw_text:
+                with st.expander("Preview"):
+                    st.text(raw_text[:500] + "...")
+
+    if raw_text.strip():
+        col_a, col_b = st.columns(2)
+        with col_a:
+            summarize_btn = st.button("🤖 Summarize with Claude", type="primary")
+        with col_b:
+            save_raw_btn = st.button("💾 Save Raw Notes (no summary)")
+
+        if save_raw_btn:
+            if not meeting_title:
+                st.error("Please add a meeting title.")
+            elif not file_project:
+                st.error("Please select a project folder.")
+            else:
+                notes_df = add_note(notes_df, meeting_title, raw_text, "", file_project, file_meeting_type, file_status, note_date=file_date)
+                save_notes(notes_df)
+                st.success(f"✅ Raw notes saved to **{file_project}**!")
+                st.rerun()
+
+        if summarize_btn:
+            text_to_send = raw_text[:8000] if len(raw_text) > 8000 else raw_text
+            prompt = f"""Meeting: {meeting_title or 'Team Meeting'}
+
+TRANSCRIPT/NOTES:
+{text_to_send}
+
+## 🔴🟡🟢 KEY DECISIONS
+Traffic lights. One sentence each. Bold the most important.
+
+## ✅ ACTION ITEMS
+Format: 🔴/🟡/🟢 **[Owner]**: [Task] — Due: [date or ASAP]
+
+## 🚧 BLOCKERS & RISKS
+🔴 blockers, 🟡 risks. One sentence each.
+
+## ❓ FOLLOW-UP QUESTIONS
+Short bullet list.
+
+## ⚡ THE ONE THING
+Bold: the single most important thing before the next meeting.
+
+No paragraphs. ADHD-friendly only."""
+
+            with st.spinner("Claude is summarizing..."):
+                summary = call_claude([{"role": "user", "content": prompt}], system=MINUTES_SYSTEM)
+
+            st.markdown("---")
+            st.markdown("### 📊 Summary")
+            st.markdown(summary)
+            st.session_state["transcript_summary"] = summary
+            st.session_state["transcript_title"] = meeting_title
+            st.session_state["transcript_project"] = file_project
+            st.session_state["transcript_type"] = file_meeting_type
+            st.session_state["transcript_status"] = file_status
+            st.session_state["transcript_date"] = file_date
+
+    if "transcript_summary" in st.session_state:
+        st.markdown("---")
+        st.markdown("### 📁 File this summary")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("✅ File Summary to Folder", type="primary"):
+                if not st.session_state.get("transcript_project"):
+                    st.error("Please select a project folder first.")
+                elif not st.session_state.get("transcript_title"):
+                    st.error("Please add a meeting title first.")
+                else:
+                    notes_df = add_note(
+                        notes_df,
+                        st.session_state["transcript_title"],
+                        st.session_state["transcript_summary"],
+                        "", 
+                        st.session_state["transcript_project"],
+                        st.session_state["transcript_type"],
+                        st.session_state["transcript_status"],
+                        note_date=st.session_state["transcript_date"]
+                    )
+                    save_notes(notes_df)
+                    st.success(f"✅ Filed to **{st.session_state['transcript_project']}**!")
+                    del st.session_state["transcript_summary"]
+                    st.rerun()
+        with col2:
+            st.download_button("⬇️ Download Summary",
+                data=st.session_state["transcript_summary"].encode("utf-8"),
+                file_name=f"summary_{date.today()}.txt", mime="text/plain")
+
+# ═══════════════════════════════════════════════════════════════════════
+# TAB 4 — ADD NOTES MANUALLY
+# ═══════════════════════════════════════════════════════════════════════
+with tab4:
+    st.subheader("📝 Add Meeting Notes Manually")
     with st.form("meeting_form"):
         title = st.text_input("Meeting Title *")
         col1, col2, col3 = st.columns(3)
         with col1:
-            project_tag = st.selectbox("Project / Grant", [""] + all_project_names) if all_project_names else st.text_input("Project / Grant")
+            project_tag = st.selectbox("Project / Grant", [""] + all_project_names)
         with col2:
             meeting_type = st.selectbox("Meeting Type", MEETING_TYPES)
         with col3:
@@ -302,23 +439,18 @@ with tab3:
             if not title:
                 st.error("Meeting title is required.")
             else:
-                new_id = int(notes_df["id"].max()) + 1 if not notes_df.empty else 1
-                new_note = {"id": new_id, "type": "meeting", "title": title,
-                    "content": content, "action_items": action_items,
-                    "date": str(meeting_date), "project_tag": project_tag,
-                    "meeting_type": meeting_type, "status_tag": status_tag}
-                notes_df = pd.concat([notes_df, pd.DataFrame([new_note])], ignore_index=True)
+                notes_df = add_note(notes_df, title, content, action_items, project_tag, meeting_type, status_tag, note_date=meeting_date)
                 save_notes(notes_df)
-                st.success("✅ Saved!")
+                st.success(f"✅ Saved to **{project_tag or 'no folder'}**!")
                 if ai_btn and (content or action_items):
                     with st.spinner("Coach is reviewing..."):
-                        feedback = call_claude([{"role": "user", "content": f"Review these meeting notes.\nMeeting: {title}\nNotes: {content}\nAction Items: {action_items}\nGive feedback on clarity, risks, and 2-3 next steps."}], system=PM_SYSTEM)
+                        feedback = call_claude([{"role": "user", "content": f"Review these meeting notes.\nMeeting: {title}\nNotes: {content}\nAction Items: {action_items}\nGive feedback on clarity, risks, 2-3 next steps."}], system=PM_SYSTEM)
                     st.info(feedback)
 
 # ═══════════════════════════════════════════════════════════════════════
-# TAB 4 — TIMELINE
+# TAB 5 — TIMELINE
 # ═══════════════════════════════════════════════════════════════════════
-with tab4:
+with tab5:
     st.subheader("📅 Timeline")
     if notes_df.empty:
         st.info("No notes yet!")
@@ -342,10 +474,8 @@ with tab4:
         for _, row in tl_df.iterrows():
             status_icon = {"Action Needed": "🔴", "FYI": "🟡", "Archived": "⚫"}.get(str(row.get("status_tag", "")), "🟢")
             table_data.append({
-                "Date": row["date"],
-                "Status": f"{status_icon} {row.get('status_tag', '')}",
-                "Title": row["title"],
-                "Project": row.get("project_tag", ""),
+                "Date": row["date"], "Status": f"{status_icon} {row.get('status_tag', '')}",
+                "Title": row["title"], "Project": row.get("project_tag", ""),
                 "Type": row.get("meeting_type", ""),
             })
         if table_data:
@@ -363,14 +493,14 @@ with tab4:
             st.markdown("---")
 
 # ═══════════════════════════════════════════════════════════════════════
-# TAB 5 — REFLECTIONS
+# TAB 6 — REFLECTIONS
 # ═══════════════════════════════════════════════════════════════════════
-with tab5:
+with tab6:
     st.subheader("🔁 Weekly / Daily Reflection")
     reflection_type = st.radio("Type", ["Daily", "Weekly"], horizontal=True)
     prompts = ["What did I accomplish today?", "What blockers came up?", "Most important thing to do tomorrow?"] if reflection_type == "Daily" else ["Progress this week?", "What slowed us down?", "On track for next milestone?", "What would I do differently?", "Budget or timeline concerns?"]
     with st.form("reflection_form"):
-        project_tag_r = st.selectbox("Project", [""] + sorted(set(list(projects_df["name"].tolist()) + list(notes_df["project_tag"].dropna().unique().tolist()))))
+        project_tag_r = st.selectbox("Project", [""] + all_project_names)
         responses = {p: st.text_area(p, key=f"r_{i}", height=80) for i, p in enumerate(prompts)}
         col1, col2 = st.columns(2)
         with col1:
@@ -380,11 +510,8 @@ with tab5:
         if save_r or coach_r:
             combined = "\n\n".join([f"**{q}**\n{a}" for q, a in responses.items() if a.strip()])
             if combined:
-                new_id = int(notes_df["id"].max()) + 1 if not notes_df.empty else 1
-                notes_df = pd.concat([notes_df, pd.DataFrame([{"id": new_id, "type": "reflection",
-                    "title": f"{reflection_type} Reflection — {date.today()}",
-                    "content": combined, "action_items": "", "date": str(date.today()),
-                    "project_tag": project_tag_r, "meeting_type": "", "status_tag": "FYI"}])], ignore_index=True)
+                notes_df = add_note(notes_df, f"{reflection_type} Reflection — {date.today()}",
+                    combined, "", project_tag_r, "", "FYI", note_type="reflection")
                 save_notes(notes_df)
                 st.success("✅ Saved!")
                 if coach_r:
@@ -393,9 +520,9 @@ with tab5:
                     st.info(coaching)
 
 # ═══════════════════════════════════════════════════════════════════════
-# TAB 6 — PM COACH
+# TAB 7 — PM COACH
 # ═══════════════════════════════════════════════════════════════════════
-with tab6:
+with tab7:
     st.subheader("💬 PM Coach Chat")
     cols = st.columns(3)
     starters = ["How do I build a 3-year grant timeline?", "My team keeps missing deadlines.", "How to talk to my PI about budget overruns?", "Best way to run a grant kick-off?", "Track deliverables without micromanaging?", "6 months in and already behind. Help."]
