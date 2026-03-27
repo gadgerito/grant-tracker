@@ -34,17 +34,16 @@ def check_login(username, password):
 if not st.session_state.get("authenticated"):
     st.title("🎯 Grant Tracker")
     st.markdown("### Sign in")
-    username = st.text_input("Username")
     password = st.text_input("Password", type="password")
     if st.button("Sign in", type="primary"):
-        success, user = check_login(username, password)
-        if success:
+        app_password = os.environ.get("APP_PASSWORD", "") or st.secrets.get("APP_PASSWORD", "")
+        if password == app_password:
             st.session_state["authenticated"] = True
-            st.session_state["username"] = username.lower().strip()
-            st.session_state["role"] = user.get("role", "viewer")
+            st.session_state["role"] = "viewer"
+            st.session_state["username"] = "team"
             st.rerun()
         else:
-            st.error("Incorrect username or password.")
+            st.error("Incorrect password.")
     st.stop()
 
 db = get_db()
