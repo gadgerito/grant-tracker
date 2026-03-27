@@ -1,12 +1,17 @@
 import streamlit as st
-st.set_page_config(page_title="Grant Tracker", page_icon="🎯", layout="wide")
-
 import pandas as pd
 import hashlib
 import os
 from datetime import date, datetime
 from utils import status_color, budget_summary
 
+st.set_page_config(page_title="Grant Tracker", page_icon="🎯", layout="wide")
+if not st.session_state.get("authenticated"):
+    st.markdown("""
+    <style>
+    [data-testid="stSidebarNav"] {display: none;}
+    </style>
+    """, unsafe_allow_html=True)
 def get_db():
     try:
         from pymongo import MongoClient
