@@ -56,7 +56,8 @@ from db import (load_deliverables, save_deliverable, next_deliverable_id,
 
 st.sidebar.title("🎯 Grant Tracker")
 st.sidebar.caption(f"👤 {st.session_state.get('username', '')}")
-page = st.sidebar.radio("Navigate", ["📊 Dashboard", "📋 Deliverables", "👥 Team", "💰 Budget", "📤 Reports"])
+pst.sidebar.markdown("**📋 Grant Management**")
+page = st.sidebar.selectbox("", ["📊 Dashboard", "📋 Deliverables", "👥 Team", "💰 Budget", "📤 Reports"])
 st.sidebar.markdown("---")
 if st.sidebar.button("🚪 Sign out"):
     st.session_state.clear()
