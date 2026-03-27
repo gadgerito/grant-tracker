@@ -45,7 +45,14 @@ if not st.session_state.get("authenticated"):
         else:
             st.error("Incorrect password.")
     st.stop()
-
+if not st.session_state.get("notebook_access"):
+    st.markdown("""
+    <style>
+    [data-testid="stSidebarNav"] a[href*="Notebook"] {
+        display: none;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 db = get_db()
 if db is None:
     st.stop()
@@ -58,7 +65,11 @@ st.sidebar.caption(f"👤 {st.session_state.get('username', '')}")
 st.sidebar.markdown("**📋 Grant Management**")
 page = st.sidebar.selectbox("", ["📊 Dashboard", "📋 Deliverables", "👥 Team", "💰 Budget", "📤 Reports"])
 st.sidebar.markdown("---")
-if st.sidebar.button("🚪 Sign out"):
+if st.sidebar.button("🚪 Sign out")
+if st.session_state.get("notebook_access"):
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("**🔐 Admin**")
+    st.sidebar.page_link("pages/2_📓_Notebook.py", label="📓 Notebook"):
     st.session_state.clear()
     st.rerun()
 
