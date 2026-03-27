@@ -4,35 +4,36 @@ import json
 import os
 import urllib.request
 from datetime import date, datetime
-from auth import require_login
-require_login()
+
+if not st.session_state.get("authenticated"):
+    st.warning("🔒 Please sign in from the main page first.")
+    st.stop()
+
+if st.session_state.get("role") != "admin":
+    st.error("⛔ This page is for administrators only.")
+    st.stop()
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+if not ANTHROPIC_API_KEY:
+    try:
+        ANTHROPIC_API_KEY = st.secrets.get("ANTHROPIC_API_KEY", "")
+    except:
+        pass
 
-def call_claude(messages: list, system: str = "") -> str:
+def call_claude(messages, system=""):
     if not ANTHROPIC_API_KEY:
-        return "⚠️ No API key found. Set ANTHROPIC_API_KEY in your secrets.toml"
-    payload = {
-        "model": "claude-sonnet-4-20250514",
-        "max_tokens": 1024,
-        "system": system,
-        "messages": messages,
-    }
+        return "⚠️ No API key found. Add ANTHROPIC_API_KEY to your secrets."
+    payload = {"model": "claude-sonnet-4-20250514", "max_tokens": 1024, "system": system, "messages": messages}
     data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
-        "https://api.anthropic.com/v1/messages",
-        data=data,
-        headers={"Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01"},
-        method="POST",
-    )
+    req = urllib.request.Request("https://api.anthropic.com/v1/messages", data=data,
+        headers={"Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01"}, method="POST")
     try:
         with urllib.request.urlopen(req) as resp:
-            result = json.loads(resp.read().decode("utf-8"))
-            return result["content"][0]["text"]
+            return json.loads(resp.read().decode("utf-8"))["content"][0]["text"]
     except Exception as e:
         return f"⚠️ API error: {e}"
 
-PM_SYSTEM = """You are an expert project management coach specializing in multi-year foundation grants (NIH, NSF, private foundations). Help the user become an exceptional grant project manager with expertise in budgets, timelines, team coordination, and funder communication. Be direct, practical, and always end with 2-3 specific next actions."""
+PM_SYSTEM = """You are an expert project management coach specializing in multi-year foundation grants. Help the user become an exceptional grant project manager with expertise in budgets, timelines, team coordination, and funder communication. Be direct, practical, and always end with 2-3 specific next actions."""
 
 DATA_DIR = "data"
 NOTES_FILE = os.path.join(DATA_DIR, "notebook.csv")
@@ -42,7 +43,7 @@ def load_notes():
     if os.path.exists(NOTES_FILE):
         try:
             return pd.read_csv(NOTES_FILE)
-        except Exception:
+        except:
             pass
     return pd.DataFrame(columns=["id","type","title","content","action_items","date","project_tag"])
 
@@ -72,14 +73,14 @@ with tab1:
             st.rerun()
     st.markdown("---")
     for msg in st.session_state.chat_history:
-        with st.chat_message("user" if msg["role"] == "user" else "assistant", avatar=None if msg["role"] == "user" else "🎓"):
+        with st.chat_message("user" if msg["role"] == "user" else "assistant"):
             st.write(msg["content"])
     user_input = st.chat_input("Ask your PM coach anything...")
     if user_input:
         st.session_state.chat_history.append({"role": "user", "content": user_input})
         with st.chat_message("user"):
             st.write(user_input)
-        with st.chat_message("assistant", avatar="🎓"):
+        with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
                 reply = call_claude(st.session_state.chat_history, system=PM_SYSTEM)
             st.write(reply)
@@ -139,7 +140,7 @@ with tab3:
                 st.success("✅ Reflection saved!")
                 if coach_r:
                     with st.spinner("Coach is reading your reflection..."):
-                        coaching = call_claude([{"role": "user", "content": f"Here is my {reflection_type.lower()} reflection:\n{combined}\nGive me: 1) One thing I'm doing well, 2) One risk to address, 3) Three prioritized actions. Be direct."}], system=PM_SYSTEM)
+                        coaching = call_claude([{"role": "user", "content": f"Here is my {reflection_type.lower()} reflection:\n{combined}\nGive me: 1) One thing I am doing well, 2) One risk to address, 3) Three prioritized actions. Be direct."}], system=PM_SYSTEM)
                     st.info(coaching)
 
 with tab4:
@@ -169,4 +170,3 @@ with tab4:
                 save_notes(notes_df)
                 st.success("✅ Note saved!")
                 st.rerun()
-EOF
