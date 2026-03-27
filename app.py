@@ -65,7 +65,6 @@ st.sidebar.caption(f"👤 {st.session_state.get('username', '')}")
 st.sidebar.markdown("**📋 Grant Management**")
 page = st.sidebar.selectbox("", ["📊 Dashboard", "📋 Deliverables", "👥 Team", "💰 Budget", "📤 Reports"])
 st.sidebar.markdown("---")
-if st.sidebar.button("🚪 Sign out")
 if st.session_state.get("notebook_access"):
     st.sidebar.markdown("---")
     st.sidebar.markdown("**🔐 Admin**")
