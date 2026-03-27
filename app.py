@@ -56,7 +56,7 @@ from db import (load_deliverables, save_deliverable, next_deliverable_id,
 
 st.sidebar.title("🎯 Grant Tracker")
 st.sidebar.caption(f"👤 {st.session_state.get('username', '')}")
-pst.sidebar.markdown("**📋 Grant Management**")
+st.sidebar.markdown("**📋 Grant Management**")
 page = st.sidebar.selectbox("", ["📊 Dashboard", "📋 Deliverables", "👥 Team", "💰 Budget", "📤 Reports"])
 st.sidebar.markdown("---")
 if st.sidebar.button("🚪 Sign out"):
