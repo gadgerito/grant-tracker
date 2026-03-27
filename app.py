@@ -43,6 +43,7 @@ if not st.session_state.get("authenticated"):
             st.rerun()
         else:
             st.error("Incorrect password.")
+    st.stop()
    # --- Hide all utility pages from sidebar nav by default ---
 hidden_pages = ["Import", "Backup", "Signup", "Admin", "Notebook"]
 if st.session_state.get("notebook_access"):
