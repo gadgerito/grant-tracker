@@ -44,10 +44,12 @@ if not st.session_state.get("authenticated"):
         else:
             st.error("Incorrect password.")
     st.stop()
-   # --- Hide all utility pages from sidebar nav by default ---
-hidden_pages = ["Import", "Backup", "Signup", "Admin", "Notebook"]
-if st.session_state.get("notebook_access"):
-    hidden_pages.remove("Admin")
+  # Hide Streamlit's auto-generated page nav entirely
+st.markdown("""
+<style>
+[data-testid="stSidebarNav"] {display: none;}
+</style>
+""", unsafe_allow_html=True)
 
 hide_css = "\n".join(
     f'[data-testid="stSidebarNav"] a[href*="{p}"] {{display: none;}}'
