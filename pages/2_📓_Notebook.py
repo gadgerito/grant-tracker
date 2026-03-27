@@ -13,8 +13,20 @@ if not st.session_state.get("authenticated"):
     st.warning("🔒 Please sign in from the main page first.")
     st.stop()
 
-if st.session_state.get("role") != "admin":
-    st.error("⛔ This page is for administrators only.")
+if not st.session_state.get("notebook_access"):
+    st.title("📓 Notebook")
+    st.markdown("### Admin access required")
+    admin_pw = st.text_input("Admin password", type="password")
+    if st.button("Enter", type="primary"):
+        try:
+            admin_password = st.secrets.get("ADMIN_PASSWORD", "")
+        except:
+            admin_password = os.environ.get("ADMIN_PASSWORD", "")
+        if admin_pw == admin_password:
+            st.session_state["notebook_access"] = True
+            st.rerun()
+        else:
+            st.error("Incorrect password.")
     st.stop()
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
