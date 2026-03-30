@@ -6,6 +6,14 @@ from datetime import date, datetime
 from utils import status_color, budget_summary
 
 st.set_page_config(page_title="Grant Tracker", page_icon="🎯", layout="wide")
+
+# ── Hide auto-generated page nav everywhere (before AND after login) ──
+st.markdown(
+    "<style>[data-testid='stSidebarNav'] {display: none;}</style>",
+    unsafe_allow_html=True,
+)
+
+# ── Database connection ──
 def get_db():
     try:
         from pymongo import MongoClient
@@ -19,17 +27,7 @@ def get_db():
         st.error(f"DB error: {e}")
         return None
 
-def check_login(username, password):
-    db = get_db()
-    if db is None:
-        return False, None
-    user = db["users"].find_one({"username": username.lower().strip()})
-    if not user:
-        return False, None
-    if user["password_hash"] == hashlib.sha256(password.encode()).hexdigest():
-        return True, user
-    return False, None
-
+# ── Login gate ──
 if not st.session_state.get("authenticated"):
     st.title("🎯 Grant Tracker")
     st.markdown("### Sign in")
@@ -44,18 +42,11 @@ if not st.session_state.get("authenticated"):
         else:
             st.error("Incorrect password.")
     st.stop()
-  # Hide Streamlit's auto-generated page nav entirely
-st.markdown("""
-<style>
-[data-testid="stSidebarNav"] {display: none;}
-</style>
-""", unsafe_allow_html=True)
 
-hide_css = "\n".join(
-    f'[data-testid="stSidebarNav"] a[href*="{p}"] {{display: none;}}'
-    for p in hidden_pages
-)
-st.markdown(f"<style>{hide_css}</style>", unsafe_allow_html=True)
+# ══════════════════════════════════════════════════════════════════════
+# Everything below only runs for authenticated users
+# ══════════════════════════════════════════════════════════════════════
+
 db = get_db()
 if db is None:
     st.stop()
@@ -63,22 +54,25 @@ if db is None:
 from db import (load_deliverables, save_deliverable, next_deliverable_id,
                 load_team, save_team_member, delete_deliverable)
 
+# ── Sidebar navigation ──
 st.sidebar.title("🎯 Grant Tracker")
 st.sidebar.caption(f"👤 {st.session_state.get('username', '')}")
 st.sidebar.markdown("**📋 Grant Management**")
 page = st.sidebar.selectbox("", ["📊 Dashboard", "📋 Deliverables", "👥 Team", "💰 Budget", "📤 Reports"])
 st.sidebar.markdown("---")
+
 if st.session_state.get("notebook_access"):
-    st.sidebar.markdown("---")
     st.sidebar.markdown("**🔐 Admin**")
     if st.sidebar.button("🚪 Logout"):
         st.session_state.clear()
         st.rerun()
 
+# ── Load data ──
 df = load_deliverables(db)
 team_df = load_team(db)
 STATUS_OPTIONS = ["Not Started", "In Progress", "Under Review", "Complete", "Blocked"]
 
+# ── Pages ──
 if page == "📊 Dashboard":
     st.title("📊 Dashboard")
     if df.empty:
@@ -118,11 +112,20 @@ if page == "📊 Dashboard":
                     d = datetime.strptime(str(row["due_date"]), "%Y-%m-%d").date()
                     delta = (d - today).days
                     if 0 <= delta <= 30 and row["status"] != "Complete":
-                        upcoming.append({"Deliverable": row["deliverable"], "Assignee": row["assignee"], "Due": str(row["due_date"]), "Days Left": delta})
+                        upcoming.append({
+                            "Deliverable": row["deliverable"],
+                            "Assignee": row["assignee"],
+                            "Due": str(row["due_date"]),
+                            "Days Left": delta,
+                        })
                 except Exception:
                     pass
             if upcoming:
-                st.dataframe(pd.DataFrame(upcoming).sort_values("Days Left"), use_container_width=True, hide_index=True)
+                st.dataframe(
+                    pd.DataFrame(upcoming).sort_values("Days Left"),
+                    use_container_width=True,
+                    hide_index=True,
+                )
             else:
                 st.success("No deadlines in the next 30 days!")
         st.markdown("---")
@@ -202,7 +205,18 @@ elif page == "📋 Deliverables":
                 if not name:
                     st.error("Name required.")
                 else:
-                    save_deliverable(db, {"id": next_deliverable_id(db), "deliverable": name, "description": description, "assignee": assignee, "due_date": str(due_date), "status": status, "budget_allocated": budget_alloc, "budget_spent": budget_spent, "milestone": milestone, "notes": notes})
+                    save_deliverable(db, {
+                        "id": next_deliverable_id(db),
+                        "deliverable": name,
+                        "description": description,
+                        "assignee": assignee,
+                        "due_date": str(due_date),
+                        "status": status,
+                        "budget_allocated": budget_alloc,
+                        "budget_spent": budget_spent,
+                        "milestone": milestone,
+                        "notes": notes,
+                    })
                     st.success(f"✅ '{name}' added!")
                     st.rerun()
 
@@ -255,4 +269,9 @@ elif page == "📤 Reports":
         for s in STATUS_OPTIONS:
             st.markdown(f"- {status_color(s)} **{s}**: {(df['status'] == s).sum()}")
         st.markdown("---")
-        st.download_button("⬇️ Download CSV", data=df.to_csv(index=False).encode("utf-8"), file_name=f"deliverables_{date.today()}.csv", mime="text/csv")
+        st.download_button(
+            "⬇️ Download CSV",
+            data=df.to_csv(index=False).encode("utf-8"),
+            file_name=f"deliverables_{date.today()}.csv",
+            mime="text/csv",
+        )
